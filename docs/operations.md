@@ -8,11 +8,17 @@ status: draft
 
 ## Lokaler Start
 
-Issue #1 definiert den reproduzierbaren Docker-Desktop-Start. Ports, Umgebungsvariablen, Healthcheck und Smoke-Test werden dort verbindlich dokumentiert.
+Voraussetzungen sind Docker Desktop mit Compose v2 sowie `curl` für den
+Host-Smoke-Test. Der Stack startet mit `docker compose up --build`; danach
+ist `http://127.0.0.1:8080/healthz` erreichbar. Mit `BACKEND_PORT=8081` kann
+der Host-Port geändert werden. Die vollständige Befehlsreferenz steht in der
+[Containerisierungsdokumentation](containerization.md).
 
-Für die Persistenz aus Issue #4 startet `docker compose up --build` den
-endpoint-freien Backend-Prozess und führt die versionierten SQLite-Migrationen
-beim Öffnen der Datenbank aus. Die Datenbank liegt im Container unter
+Der Smoke-Test `./scripts/smoke-test.sh` baut den Stack, wartet bis `/healthz`
+antwortet und fährt den Stack auch bei einem Fehlschlag wieder herunter.
+
+Für die Persistenz aus Issue #4 öffnet der HTTP-Server beim Start die Datenbank
+und führt die versionierten SQLite-Migrationen aus. Die Datenbank liegt im Container unter
 `/app/data/equipment.db`; Compose bindet dieses Verzeichnis an das benannte
 Volume `equipment-data`. Das Volume darf nicht durch einen Container-Neustart
 oder ein neues Image ersetzt werden. Für lokale Tests kann `EQUIPMENT_DB_PATH`

@@ -4,9 +4,9 @@ Go-Backend des Equipment Manager Produkts.
 
 ## Projektstatus
 
-Das Repository enthält die SQLite-Persistenz aus Issue #4. Das Datenbankmodell
-und die Geschäftsregeln folgen der Referenz aus Issue #3. HTTP-Endpunkte sind
-weiterhin nicht Teil dieses Issues.
+Das Repository enthält den containerisierten Go-HTTP-Server und die
+SQLite-Persistenz. Das Datenbankmodell und die Geschäftsregeln folgen der
+Referenz aus Issue #3.
 
 ## Wiki
 
@@ -17,14 +17,27 @@ weiterhin nicht Teil dieses Issues.
 - [Entscheidungen](docs/decisions.md)
 - [MVP-Domänenmodell](docs/mvp-domain-model.md)
 
-## Persistenz lokal starten
+## Lokaler Start mit Docker
+
+Voraussetzungen: Docker Desktop mit Compose v2 und `curl`.
 
 ```sh
 docker compose up --build
+curl --fail http://127.0.0.1:8080/healthz
 ```
 
-Die Datenbank wird beim Start migriert und liegt persistent in
-`/app/data/equipment.db` innerhalb des Compose-Volumes `equipment-data`.
+Der Backend-Port kann mit `BACKEND_PORT=8081 docker compose up --build` geändert
+werden. Der Container meldet sich über `/healthz` als healthy; der Endpoint
+antwortet mit `{"status":"ok"}`. Der reproduzierbare Smoke-Test ist:
+
+```sh
+./scripts/smoke-test.sh
+```
+
+Die SQLite-Datenbank wird beim Start migriert und liegt unter
+`/app/data/equipment.db` im benannten Compose-Volume `equipment-data`. Dadurch
+bleiben Daten bei Container-Neustarts und Image-Neubauten erhalten. Ein
+abweichender Datenbankpfad kann über `EQUIPMENT_DB_PATH` konfiguriert werden.
 
 ## Zuständigkeit
 
