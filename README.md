@@ -4,7 +4,9 @@ Go-Backend des Equipment Manager Produkts.
 
 ## Projektstatus
 
-Das Repository ist frisch initialisiert. Issue #1 definiert die verbindliche Containerisierung als ersten technischen Schritt.
+Das Repository enthält die SQLite-Persistenz aus Issue #4. Das Datenbankmodell
+und die Geschäftsregeln folgen der Referenz aus Issue #3. HTTP-Endpunkte sind
+weiterhin nicht Teil dieses Issues.
 
 ## Wiki
 
@@ -14,6 +16,15 @@ Das Repository ist frisch initialisiert. Issue #1 definiert die verbindliche Con
 - [Containerisierung](docs/containerization.md)
 - [Entscheidungen](docs/decisions.md)
 - [MVP-Domänenmodell](docs/mvp-domain-model.md)
+
+## Persistenz lokal starten
+
+```sh
+docker compose up --build
+```
+
+Die Datenbank wird beim Start migriert und liegt persistent in
+`/app/data/equipment.db` innerhalb des Compose-Volumes `equipment-data`.
 
 ## Zuständigkeit
 

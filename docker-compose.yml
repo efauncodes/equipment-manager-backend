@@ -1,0 +1,11 @@
+services:
+  backend:
+    build:
+      context: .
+    environment:
+      EQUIPMENT_DB_PATH: /app/data/equipment.db
+    volumes:
+      - equipment-data:/app/data
+
+volumes:
+  equipment-data:
