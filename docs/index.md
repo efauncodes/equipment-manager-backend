@@ -12,6 +12,7 @@ Diese Wiki-Struktur ist die kanonische Wissensbasis für das Backend-Repository.
 - [Betrieb und Workflow](operations.md)
 - [Containerisierung](containerization.md)
 - [Entscheidungen](decisions.md)
+- [MVP-Domänenmodell, Datenmodell und Geschäftsregeln](mvp-domain-model.md)
 
 ## Pflege
 

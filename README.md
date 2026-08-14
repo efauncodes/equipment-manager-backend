@@ -13,6 +13,7 @@ Das Repository ist frisch initialisiert. Issue #1 definiert die verbindliche Con
 - [Betrieb und Workflow](docs/operations.md)
 - [Containerisierung](docs/containerization.md)
 - [Entscheidungen](docs/decisions.md)
+- [MVP-Domänenmodell](docs/mvp-domain-model.md)
 
 ## Zuständigkeit
 
