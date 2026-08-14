@@ -10,11 +10,20 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/efauncodes/equipment-manager-backend/db"
 )
 
 const defaultHTTPAddr = ":8080"
 
 func main() {
+	database, err := db.Open("")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer database.Close()
+	log.Printf("sqlite database ready at %s", db.ConfiguredPath())
+
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = defaultHTTPAddr
