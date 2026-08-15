@@ -52,6 +52,18 @@ type CreateEquipmentInput struct {
 	PurchaseDate             *string
 	Manufacturer             string
 }
+type UpdateMemberInput struct {
+	Email       *string
+	DisplayName *string
+	IsActive    *bool
+}
+type UpdateEquipmentInput struct {
+	SerialNumber *string
+	Type         *string
+	Size         *string
+	PurchaseDate **string
+	Manufacturer *string
+}
 type TokenResult struct {
 	RawToken string
 	Link     domain.MagicLink
@@ -77,6 +89,60 @@ func (s *Service) CreateUser(ctx context.Context, email, displayName, role strin
 		return domain.User{}, mapWriteError(err)
 	}
 	return user, nil
+}
+
+func (s *Service) FindUserByEmail(ctx context.Context, email string) (domain.User, error) {
+	return s.store.Users().FindByEmail(ctx, domain.NormalizeEmail(email))
+}
+
+func (s *Service) ListMembers(ctx context.Context) ([]domain.User, error) {
+	return s.store.Users().ListMembers(ctx)
+}
+
+func (s *Service) GetUser(ctx context.Context, id string) (domain.User, error) {
+	return s.store.Users().Get(ctx, id)
+}
+
+func (s *Service) UpdateMember(ctx context.Context, actorID, id string, input UpdateMemberInput) (domain.User, error) {
+	var result domain.User
+	err := s.store.InTx(ctx, func(tx *repository.Tx) error {
+		actor, err := tx.User(actorID)
+		if err != nil {
+			return err
+		}
+		if err = ensureAdmin(actor); err != nil {
+			return err
+		}
+		member, err := tx.User(id)
+		if err != nil {
+			return err
+		}
+		if err = ensureMember(member); err != nil && member.Role != domain.RoleMember {
+			return err
+		}
+		if member.Role != domain.RoleMember {
+			return fmt.Errorf("%w: only members may be changed", domain.ErrConflict)
+		}
+		if input.Email != nil {
+			member.Email = domain.NormalizeEmail(*input.Email)
+		}
+		if input.DisplayName != nil {
+			member.DisplayName = strings.TrimSpace(*input.DisplayName)
+		}
+		if input.IsActive != nil {
+			member.IsActive = *input.IsActive
+		}
+		if member.Email == "" || member.DisplayName == "" {
+			return fmt.Errorf("%w: member fields are required", domain.ErrInvalid)
+		}
+		member.UpdatedAt = s.timestamp()
+		if err := tx.UpdateUser(member.ID, member.Email, member.DisplayName, member.IsActive, member.UpdatedAt); err != nil {
+			return mapWriteError(err)
+		}
+		result = member
+		return nil
+	})
+	return result, err
 }
 
 func (s *Service) SetUserActive(ctx context.Context, actorID, id string, active bool) error {
@@ -135,6 +201,57 @@ func (s *Service) History(ctx context.Context, equipmentID string) ([]domain.His
 	return s.store.History().ListByEquipment(ctx, equipmentID)
 }
 
+func (s *Service) UpdateEquipment(ctx context.Context, actorID, id string, input UpdateEquipmentInput) (domain.Equipment, error) {
+	var result domain.Equipment
+	err := s.store.InTx(ctx, func(tx *repository.Tx) error {
+		actor, err := tx.User(actorID)
+		if err != nil {
+			return err
+		}
+		if err = ensureAdmin(actor); err != nil {
+			return err
+		}
+		item, err := tx.Equipment(id)
+		if err != nil {
+			return err
+		}
+		if input.SerialNumber != nil {
+			item.SerialNumber = domain.NormalizeSerial(*input.SerialNumber)
+		}
+		if input.Type != nil {
+			item.Type = strings.TrimSpace(*input.Type)
+		}
+		if input.Size != nil {
+			item.Size = strings.TrimSpace(*input.Size)
+		}
+		if input.PurchaseDate != nil {
+			item.PurchaseDate = *input.PurchaseDate
+		}
+		if input.Manufacturer != nil {
+			item.Manufacturer = strings.TrimSpace(*input.Manufacturer)
+		}
+		if item.SerialNumber == "" || item.Type == "" || item.Size == "" || item.Manufacturer == "" {
+			return fmt.Errorf("%w: equipment fields are required", domain.ErrInvalid)
+		}
+		if item.PurchaseDate != nil {
+			if _, err := time.Parse(DateLayout, *item.PurchaseDate); err != nil {
+				return fmt.Errorf("%w: invalid purchase date", domain.ErrInvalid)
+			}
+		}
+		item.UpdatedAt = s.timestamp()
+		if err := tx.UpdateEquipment(item); err != nil {
+			return mapWriteError(err)
+		}
+		note := "equipment_updated"
+		if err := tx.CreateHistory(domain.History{ID: newID(), EquipmentID: item.ID, EventType: domain.EventStatusChanged, FromStatus: ptr(item.Status), ToStatus: ptr(item.Status), ChangedByUserID: actor.ID, OccurredAt: item.UpdatedAt, Note: &note}); err != nil {
+			return err
+		}
+		result = item
+		return nil
+	})
+	return result, err
+}
+
 func (s *Service) Issue(ctx context.Context, equipmentID, memberID, adminID string) (domain.Issuance, error) {
 	now := s.timestamp()
 	var result domain.Issuance
@@ -167,6 +284,22 @@ func (s *Service) Issue(ctx context.Context, equipmentID, memberID, adminID stri
 		return nil
 	})
 	return result, err
+}
+
+func (s *Service) ListIssuances(ctx context.Context) ([]domain.Issuance, error) {
+	return s.store.Issuances().List(ctx)
+}
+
+func (s *Service) GetIssuance(ctx context.Context, id string) (domain.Issuance, error) {
+	return s.store.Issuances().Get(ctx, id)
+}
+
+func (s *Service) ListReturns(ctx context.Context) ([]domain.Return, error) {
+	return s.store.Returns().List(ctx)
+}
+
+func (s *Service) GetReturn(ctx context.Context, id string) (domain.Return, error) {
+	return s.store.Returns().Get(ctx, id)
 }
 
 func (s *Service) CancelIssuance(ctx context.Context, id, adminID string) error {
@@ -519,6 +652,14 @@ func (s *Service) RedeemLoginLink(ctx context.Context, raw string) (SessionResul
 }
 
 func (s *Service) RedeemConfirmationLink(ctx context.Context, raw string) (string, error) {
+	return s.redeemConfirmationLink(ctx, raw, "", "")
+}
+
+func (s *Service) RedeemConfirmationLinkFor(ctx context.Context, raw, expectedIssuanceID, expectedReturnID string) (string, error) {
+	return s.redeemConfirmationLink(ctx, raw, expectedIssuanceID, expectedReturnID)
+}
+
+func (s *Service) redeemConfirmationLink(ctx context.Context, raw, expectedIssuanceID, expectedReturnID string) (string, error) {
 	var event string
 	err := s.store.InTx(ctx, func(tx *repository.Tx) error {
 		now := s.timestamp()
@@ -540,6 +681,9 @@ func (s *Service) RedeemConfirmationLink(ctx context.Context, raw string) (strin
 			return err
 		}
 		if link.IssuanceID != nil {
+			if expectedIssuanceID != "" && *link.IssuanceID != expectedIssuanceID {
+				return domain.ErrConflict
+			}
 			i, err := tx.Issuance(*link.IssuanceID)
 			if err != nil {
 				return err
@@ -565,6 +709,9 @@ func (s *Service) RedeemConfirmationLink(ctx context.Context, raw string) (strin
 			}
 			event = domain.EventIssued
 			return nil
+		}
+		if expectedReturnID != "" && (link.ReturnID == nil || *link.ReturnID != expectedReturnID) {
+			return domain.ErrConflict
 		}
 		r, err := tx.Return(*link.ReturnID)
 		if err != nil {

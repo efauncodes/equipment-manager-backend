@@ -26,8 +26,29 @@ func (r *UserRepository) Get(ctx context.Context, id string) (domain.User, error
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (domain.User, error) {
 	return scanUser(r.store.DB.QueryRowContext(ctx, userQuery+` WHERE lower(email) = lower(?)`, email))
 }
+func (r *UserRepository) ListMembers(ctx context.Context) ([]domain.User, error) {
+	rows, err := r.store.DB.QueryContext(ctx, userQuery+` WHERE role=? ORDER BY display_name, email`, domain.RoleMember)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.User
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, user)
+	}
+	return result, rows.Err()
+}
 func (r *UserRepository) UpdateActive(ctx context.Context, id string, active bool, updatedAt string) error {
 	_, err := r.store.DB.ExecContext(ctx, `UPDATE users SET is_active=?, updated_at=? WHERE id=?`, boolInt(active), updatedAt, id)
+	return err
+}
+
+func (r *UserRepository) Update(ctx context.Context, id, email, displayName string, active bool, updatedAt string) error {
+	_, err := r.store.DB.ExecContext(ctx, `UPDATE users SET email=?,display_name=?,is_active=?,updated_at=? WHERE id=?`, email, displayName, boolInt(active), updatedAt, id)
 	return err
 }
 
@@ -36,6 +57,18 @@ func (t *Tx) User(id string) (domain.User, error) {
 }
 func (t *Tx) UserByEmail(email string) (domain.User, error) {
 	return scanUser(t.tx.QueryRow(userQuery+` WHERE lower(email) = lower(?)`, email))
+}
+
+func (t *Tx) UpdateUser(id, email, displayName string, active bool, updatedAt string) error {
+	result, err := t.tx.Exec(`UPDATE users SET email=?,display_name=?,is_active=?,updated_at=? WHERE id=?`, email, displayName, boolInt(active), updatedAt, id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 const userQuery = `SELECT id,email,display_name,role,is_active,created_at,updated_at FROM users`

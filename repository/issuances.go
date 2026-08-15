@@ -14,6 +14,22 @@ func (s *Store) Issuances() *IssuanceRepository { return &IssuanceRepository{sto
 func (r *IssuanceRepository) Get(ctx context.Context, id string) (domain.Issuance, error) {
 	return scanIssuance(r.store.DB.QueryRowContext(ctx, issuanceQuery+` WHERE id=?`, id))
 }
+func (r *IssuanceRepository) List(ctx context.Context) ([]domain.Issuance, error) {
+	rows, err := r.store.DB.QueryContext(ctx, issuanceQuery+` ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.Issuance
+	for rows.Next() {
+		item, err := scanIssuance(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
 func (t *Tx) Issuance(id string) (domain.Issuance, error) {
 	return scanIssuance(t.tx.QueryRow(issuanceQuery+` WHERE id=?`, id))
 }
