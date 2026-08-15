@@ -17,6 +17,7 @@ Referenz aus Issue #3.
 - [Entscheidungen](docs/decisions.md)
 - [MVP-Domänenmodell](docs/mvp-domain-model.md)
 - [MVP-API und lokale Tests](docs/api.md)
+- [Staging-Deployment](deploy/staging/README.md)
 
 ## Lokaler Start mit Docker
 

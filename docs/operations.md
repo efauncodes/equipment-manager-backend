@@ -17,6 +17,13 @@ der Host-Port geändert werden. Die vollständige Befehlsreferenz steht in der
 Der Smoke-Test `./scripts/smoke-test.sh` baut den Stack, wartet bis `/healthz`
 antwortet und fährt den Stack auch bei einem Fehlschlag wieder herunter.
 
+Die Referenzinstallation für einen externen Staging-Host steht unter
+[`deploy/staging/README.md`](../deploy/staging/README.md). Sie verwendet Caddy
+für HTTPS auf 80/443, hält den Backend-Port intern und bindet SQLite an einen
+expliziten Host-Pfad. `scripts/staging-backup.sh` erstellt konsistente SQLite-
+Snapshots; `scripts/remote-smoke-test.sh` testet gegen eine konfigurierbare
+HTTPS-Basis-URL.
+
 Für die Persistenz aus Issue #4 öffnet der HTTP-Server beim Start die Datenbank
 und führt die versionierten SQLite-Migrationen aus. Die Datenbank liegt im Container unter
 `/app/data/equipment.db`; Compose bindet dieses Verzeichnis an das benannte
