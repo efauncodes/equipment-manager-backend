@@ -8,10 +8,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/efauncodes/equipment-manager-backend/db"
+	"github.com/efauncodes/equipment-manager-backend/domain"
+	"github.com/efauncodes/equipment-manager-backend/repository"
+	"github.com/efauncodes/equipment-manager-backend/service"
 )
 
 const defaultHTTPAddr = ":8080"
@@ -22,6 +26,11 @@ func main() {
 		log.Fatal(err)
 	}
 	defer database.Close()
+	store := repository.NewStore(database)
+	svc := service.New(store)
+	if err := seedConfiguredAdmins(context.Background(), svc, store, os.Getenv("ADMIN_EMAILS")); err != nil {
+		log.Fatal(err)
+	}
 	log.Printf("sqlite database ready at %s", db.ConfiguredPath())
 
 	addr := os.Getenv("HTTP_ADDR")
@@ -31,7 +40,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           newHandler(),
+		Handler:           newHandler(svc),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -55,13 +64,6 @@ func main() {
 	}
 }
 
-func newHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", healthHandler)
-	mux.HandleFunc("/", rootHandler)
-	return mux
-}
-
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -71,6 +73,30 @@ func rootHandler(w http.ResponseWriter, _ *http.Request) {
 		"service": "equipment-manager-backend",
 		"status":  "ok",
 	})
+}
+
+func seedConfiguredAdmins(ctx context.Context, svc *service.Service, store *repository.Store, raw string) error {
+	for _, value := range strings.Split(raw, ",") {
+		email := domain.NormalizeEmail(value)
+		if email == "" {
+			continue
+		}
+		user, err := store.Users().FindByEmail(ctx, email)
+		if err == nil {
+			if user.Role != domain.RoleAdmin {
+				return errors.New("ADMIN_EMAILS contains a non-admin user")
+			}
+			continue
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+		name := strings.Split(email, "@")[0]
+		if _, err := svc.CreateUser(ctx, email, name, domain.RoleAdmin, true); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload map[string]string) {

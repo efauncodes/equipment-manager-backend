@@ -14,6 +14,22 @@ func (s *Store) Returns() *ReturnRepository { return &ReturnRepository{store: s}
 func (r *ReturnRepository) Get(ctx context.Context, id string) (domain.Return, error) {
 	return scanReturn(r.store.DB.QueryRowContext(ctx, returnQuery+` WHERE id=?`, id))
 }
+func (r *ReturnRepository) List(ctx context.Context) ([]domain.Return, error) {
+	rows, err := r.store.DB.QueryContext(ctx, returnQuery+` ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.Return
+	for rows.Next() {
+		item, err := scanReturn(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
 func (r *ReturnRepository) GetByIssuance(ctx context.Context, id string) (domain.Return, error) {
 	return scanReturn(r.store.DB.QueryRowContext(ctx, returnQuery+` WHERE issuance_id=?`, id))
 }

@@ -16,6 +16,7 @@ Referenz aus Issue #3.
 - [Containerisierung](docs/containerization.md)
 - [Entscheidungen](docs/decisions.md)
 - [MVP-Domänenmodell](docs/mvp-domain-model.md)
+- [MVP-API und lokale Tests](docs/api.md)
 
 ## Lokaler Start mit Docker
 
@@ -38,6 +39,20 @@ Die SQLite-Datenbank wird beim Start migriert und liegt unter
 `/app/data/equipment.db` im benannten Compose-Volume `equipment-data`. Dadurch
 bleiben Daten bei Container-Neustarts und Image-Neubauten erhalten. Ein
 abweichender Datenbankpfad kann über `EQUIPMENT_DB_PATH` konfiguriert werden.
+
+## MVP-API lokal testen
+
+Für den reproduzierbaren Development-Mailer müssen die Token-Ausgabe und ein
+Admin ausdrücklich aktiviert werden:
+
+```sh
+APP_ENV=development DEV_EXPOSE_TOKENS=true \
+ADMIN_EMAILS=admin@example.com EQUIPMENT_DB_PATH=./equipment.db \
+go run ./cmd/server
+```
+
+Die vollständige Endpunktreferenz und OpenAPI-Spezifikation stehen in
+[`docs/api.md`](docs/api.md) und [`docs/openapi.yaml`](docs/openapi.yaml).
 
 ## Zuständigkeit
 

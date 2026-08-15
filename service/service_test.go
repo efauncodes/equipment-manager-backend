@@ -176,6 +176,29 @@ func TestMagicLinksAreSingleUseAndCreateSession(t *testing.T) {
 	}
 }
 
+func TestMagicLinkExpiresAfterTenMinutes(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "equipment.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	current := time.Date(2026, 8, 15, 10, 0, 0, 0, time.FixedZone("Europe/Berlin", 2*60*60))
+	svc := NewWithClock(repository.NewStore(database), func() time.Time { return current })
+	admin, err := svc.CreateUser(context.Background(), "expiry@example.com", "Expiry Admin", domain.RoleAdmin, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := svc.CreateLoginLink(context.Background(), admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current = current.Add(11 * time.Minute)
+	if _, err := svc.RedeemLoginLink(context.Background(), link.RawToken); !errors.Is(err, domain.ErrExpired) {
+		t.Fatalf("expired link error = %v, want expired", err)
+	}
+}
+
 func TestConfirmationMagicLinkUsesSameAtomicPath(t *testing.T) {
 	f := newFixture(t)
 	defer f.close()

@@ -1,0 +1,430 @@
+openapi: 3.0.3
+info:
+  title: Equipment Manager MVP API
+  version: 1.0.0
+  description: Testbarer HTTP-Vertical-Slice für Authentifizierung, Mitglieder, Equipment, Ausgabe, Rückgabe und Historie.
+servers:
+  - url: http://127.0.0.1:8080
+tags:
+  - name: Betrieb
+  - name: Authentifizierung
+  - name: Mitglieder
+  - name: Equipment
+  - name: Ausgabe und Rückgabe
+paths:
+  /healthz:
+    get:
+      tags: [Betrieb]
+      security: []
+      responses:
+        '200':
+          description: Dienst ist erreichbar.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, example: ok }
+  /api/v1/auth/admin/magic-links:
+    post:
+      tags: [Authentifizierung]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminMagicLinkRequest'
+      responses:
+        '202':
+          description: Anfrage akzeptiert, ohne die Registrierung der Adresse zu verraten.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/auth/consume:
+    post:
+      tags: [Authentifizierung]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsumeRequest'
+      responses:
+        '200':
+          description: Login-Session oder Vorgangsbestätigung.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/TokenExpired' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentifizierung]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/me:
+    get:
+      tags: [Authentifizierung]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/members:
+    get:
+      tags: [Mitglieder]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Mitglieder]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMemberRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/members/{member_id}:
+    parameters:
+      - $ref: '#/components/parameters/MemberID'
+    get:
+      tags: [Mitglieder]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Mitglieder]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMemberRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/equipment:
+    get:
+      tags: [Equipment]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: include_written_off
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Equipment]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEquipmentRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/equipment/{equipment_id}:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentID'
+    get:
+      tags: [Equipment]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Equipment]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateEquipmentRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/equipment/{equipment_id}/write-off:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentID'
+    post:
+      tags: [Equipment]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/equipment/{equipment_id}/history:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentID'
+    get:
+      tags: [Equipment]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/issuances:
+    get:
+      tags: [Ausgabe und Rückgabe]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Ausgabe und Rückgabe]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IssuanceRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/issuances/{issuance_id}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/IssuanceID'
+    post:
+      tags: [Ausgabe und Rückgabe]
+      security: []
+      description: Mit Token öffentlich oder alternativ mit einer Member-Session ohne Body.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsumeRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/returns:
+    get:
+      tags: [Ausgabe und Rückgabe]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Ausgabe und Rückgabe]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReturnRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/returns/{return_id}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/ReturnID'
+    post:
+      tags: [Ausgabe und Rückgabe]
+      security: []
+      description: Mit Token öffentlich oder alternativ mit einer Member-Session ohne Body.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsumeRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    MemberID:
+      in: path
+      name: member_id
+      required: true
+      schema: { type: string, format: uuid }
+    EquipmentID:
+      in: path
+      name: equipment_id
+      required: true
+      schema: { type: string, format: uuid }
+    IssuanceID:
+      in: path
+      name: issuance_id
+      required: true
+      schema: { type: string, format: uuid }
+    ReturnID:
+      in: path
+      name: return_id
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Success:
+      description: Erfolgreiche Antwort.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SuccessResponse' }
+    ValidationError:
+      description: Ungültige Eingabe.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Authentifizierung fehlt oder ist ungültig.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Rolle oder Benutzerstatus erlaubt den Zugriff nicht.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Ressource nicht gefunden.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Fachlicher Konflikt oder einmaliger Token bereits verbraucht.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    TokenExpired:
+      description: Token abgelaufen.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    Meta:
+      type: object
+      required: [request_id, local_time]
+      properties:
+        request_id: { type: string }
+        local_time: { type: string, example: '2026-08-15 14:30:00' }
+    SuccessResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {}
+        meta: { $ref: '#/components/schemas/Meta' }
+    ErrorResponse:
+      type: object
+      required: [error, meta]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            fields: { type: object, additionalProperties: { type: string } }
+        meta: { $ref: '#/components/schemas/Meta' }
+    AdminMagicLinkRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    ConsumeRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    CreateMemberRequest:
+      type: object
+      required: [email, display_name]
+      properties:
+        email: { type: string, format: email }
+        display_name: { type: string }
+        is_active: { type: boolean, default: true }
+    UpdateMemberRequest:
+      type: object
+      minProperties: 1
+      properties:
+        email: { type: string, format: email }
+        display_name: { type: string }
+        is_active: { type: boolean }
+    CreateEquipmentRequest:
+      type: object
+      required: [serial_number, type, size, manufacturer]
+      properties:
+        serial_number: { type: string }
+        type: { type: string }
+        size: { type: string }
+        purchase_date: { type: string, format: date }
+        manufacturer: { type: string }
+    UpdateEquipmentRequest:
+      type: object
+      minProperties: 1
+      properties:
+        serial_number: { type: string }
+        type: { type: string }
+        size: { type: string }
+        purchase_date: { type: string, format: date }
+        manufacturer: { type: string }
+    NoteRequest:
+      type: object
+      properties:
+        note: { type: string }
+    IssuanceRequest:
+      type: object
+      required: [equipment_id, member_id]
+      properties:
+        equipment_id: { type: string, format: uuid }
+        member_id: { type: string, format: uuid }
+    ReturnRequest:
+      type: object
+      required: [issuance_id]
+      properties:
+        issuance_id: { type: string, format: uuid }

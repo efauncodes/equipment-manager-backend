@@ -40,6 +40,11 @@ func (r *EquipmentRepository) List(ctx context.Context, includeWrittenOff bool) 
 	return items, rows.Err()
 }
 
+func (r *EquipmentRepository) Update(ctx context.Context, item domain.Equipment) error {
+	_, err := r.store.DB.ExecContext(ctx, `UPDATE equipment SET serial_number=?,type=?,size=?,purchase_date=?,manufacturer=?,updated_at=? WHERE id=?`, item.SerialNumber, item.Type, item.Size, valueOrNil(item.PurchaseDate), item.Manufacturer, item.UpdatedAt, item.ID)
+	return err
+}
+
 func (t *Tx) Equipment(id string) (domain.Equipment, error) {
 	return scanEquipment(t.tx.QueryRow(equipmentQuery+` WHERE id = ?`, id))
 }
@@ -48,6 +53,18 @@ func (t *Tx) CreateEquipment(item domain.Equipment) error {
 }
 func (t *Tx) UpdateEquipmentStatus(id, status, updatedAt string) error {
 	result, err := t.tx.Exec(`UPDATE equipment SET status=?, updated_at=? WHERE id=?`, status, updatedAt, id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func (t *Tx) UpdateEquipment(item domain.Equipment) error {
+	result, err := t.tx.Exec(`UPDATE equipment SET serial_number=?,type=?,size=?,purchase_date=?,manufacturer=?,updated_at=? WHERE id=?`, item.SerialNumber, item.Type, item.Size, valueOrNil(item.PurchaseDate), item.Manufacturer, item.UpdatedAt, item.ID)
 	if err != nil {
 		return err
 	}
