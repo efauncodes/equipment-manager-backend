@@ -8,9 +8,8 @@ Das Repository enthält den containerisierten Go-HTTP-Server und die
 SQLite-Persistenz. Das Datenbankmodell und die Geschäftsregeln folgen der
 Referenz aus Issue #3.
 
-## Wiki
+## Dokumentation
 
-- [Wiki-Index](docs/index.md)
 - [Architektur](docs/architecture.md)
 - [Betrieb und Workflow](docs/operations.md)
 - [Containerisierung](docs/containerization.md)
@@ -18,6 +17,9 @@ Referenz aus Issue #3.
 - [MVP-Domänenmodell](docs/mvp-domain-model.md)
 - [MVP-API und lokale Tests](docs/api.md)
 - [Staging-Deployment](deploy/staging/README.md)
+
+Das projektbezogene Wissen wird außerhalb dieses Repositories als separater
+Obsidian-Vault gepflegt.
 
 ## Lokaler Start mit Docker
 
