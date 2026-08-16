@@ -1,0 +1,5 @@
+.env
+deploy/staging/.env
+*.db
+*.db-shm
+*.db-wal
