@@ -73,29 +73,35 @@ dabei nicht gelöscht oder durch ein Compose-Volume ersetzt.
 
 ## Remote-Test
 
-Der Smoke-Test akzeptiert eine echte HTTPS-Basis-URL und verwendet keine
-localhost-Annahme:
+Der Smoke-Test prüft immer read-only `/healthz`, `/readyz`, einen erlaubten
+CORS-Preflight für `/api/v1/me` sowie die read-only API-Listen. Die
+Staging-Basis-URL muss HTTPS verwenden und wird niemals beschrieben:
 
 ```sh
-BASE_URL=https://api-staging.example.org \
+BASE_URL=https://equipment-api.sentient-octopus.dev \
 ADMIN_SESSION_TOKEN='<session-from-staging-mail>' \
 ./../../scripts/remote-smoke-test.sh
 ```
 
-Mit `RUN_FULL_FLOW=true` prüft das Skript zusätzlich den vollständigen
-Ausgabe-/Rückgabeablauf. Dafür wird ein bereits angelegtes Testmitglied und
-dessen Session aus dem geschützten Staging-Mailweg benötigt; die Confirm-
-Endpunkte werden ohne Body über diese Member-Session aufgerufen:
+Der schreibende Full Flow ist fail-closed und darf ausschließlich gegen ein
+explizit bereitgestelltes, separates Disposable-Testziel laufen. Dafür müssen
+`DISPOSABLE_TEST_BASE_URL`, `TEST_RUN_ID`, ein Disposable-Admin-Token, ein
+Disposable-Testmitglied und dessen Member-Session gesetzt sein. Der
+`TEST_RUN_ID` wird in die erzeugten Testdaten geschrieben; das Disposable-Ziel
+muss nach dem Lauf samt temporärer Datenbank verworfen werden:
 
 ```sh
-BASE_URL=https://api-staging.example.org \
+BASE_URL=https://equipment-api.example.org \
 ADMIN_SESSION_TOKEN='<admin-session>' \
-MEMBER_ID='<test-member-id>' \
-MEMBER_SESSION_TOKEN='<member-session>' \
+DISPOSABLE_TEST_BASE_URL='http://127.0.0.1:18082' \
+DISPOSABLE_ADMIN_SESSION_TOKEN='<disposable-admin-session>' \
+DISPOSABLE_MEMBER_ID='<disposable-test-member-id>' \
+DISPOSABLE_MEMBER_SESSION_TOKEN='<disposable-member-session>' \
+TEST_RUN_ID='qa-20260907-01' \
 RUN_FULL_FLOW=true \
 ./../../scripts/remote-smoke-test.sh
 ```
 
-Das Skript benötigt `curl` und `jq`. Ohne die erforderlichen Tokens bricht es
-absichtlich mit einer klaren Anweisung ab, statt Development-Tokens zu
-aktivieren.
+Ohne Disposable-Ziel oder `TEST_RUN_ID` bricht das Skript vor jedem Netzwerk-
+und Schreibzugriff ab. Das Skript benötigt `curl`, `grep` und für den
+Disposable-Full-Flow zusätzlich `jq`.
