@@ -78,6 +78,8 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$IMAGE_DIGEST"
@@ -90,8 +92,18 @@ jobs:
           test -n "$subject_digest"
           attestation_digest="$(printf '%s\n' "$raw_manifest" | jq -r --arg subject "$subject_digest" '.manifests[]? | select((.annotations["vnd.docker.reference.type"] // "") == "attestation-manifest" and (.annotations["vnd.docker.reference.digest"] // "") == $subject) | .digest' | head -n 1)"
           test -n "$attestation_digest"
-          attestation_manifest="$(docker buildx imagetools inspect "$IMAGE_NAME@$attestation_digest" --raw)"
+          registry_repo="${IMAGE_NAME#ghcr.io/}"
+          registry_token="$(curl --fail --silent --show-error \
+            --user "$REGISTRY_USERNAME:$REGISTRY_TOKEN" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${registry_repo}:pull" | jq -er '.token')"
+          attestation_manifest="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $registry_token" \
+            --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
+            "https://ghcr.io/v2/${registry_repo}/manifests/${attestation_digest}")"
           printf '%s\n' "$attestation_manifest" | jq -e '
+            .mediaType == "application/vnd.oci.image.manifest.v1+json"
+            and .artifactType == "application/vnd.docker.attestation.manifest.v1+json"
+            and
             ([.layers[]? | select(((.annotations["in-toto.io/predicate-type"] // "") | startswith("https://slsa.dev/provenance/")))] | length >= 1)
             and
             ([.layers[]? | select((.annotations["in-toto.io/predicate-type"] // "") == "https://spdx.dev/Document")] | length >= 1)
