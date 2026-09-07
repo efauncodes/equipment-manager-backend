@@ -86,17 +86,11 @@ jobs:
           image_ref="$IMAGE_NAME@$IMAGE_DIGEST"
           inspect_output="$(docker buildx imagetools inspect "$image_ref")"
           printf '%s\n' "$inspect_output"
-          printf '%s\n' "$inspect_output" | grep -Fq "Digest:          $IMAGE_DIGEST"
+          printf '%s\n' "$inspect_output" | grep -Eq "^Digest:[[:space:]]+$IMAGE_DIGEST$"
           registry_repo="${IMAGE_NAME#ghcr.io/}"
-          token_response="$(curl --silent --show-error --write-out '\n%{http_code}' \
+          registry_token="$(curl --fail --silent --show-error \
             --user "$REGISTRY_USERNAME:$REGISTRY_TOKEN" \
-            "https://ghcr.io/token?service=ghcr.io&scope=repository:${registry_repo}:pull")"
-          token_status="${token_response##*$'\n'}"
-          token_body="${token_response%$'\n'*}"
-          echo "GHCR token endpoint status: $token_status"
-          printf '%s\n' "$token_body" | jq '{keys: keys, token_present: (.token? != null), message_present: (.message? != null)}'
-          test "$token_status" = 200
-          registry_token="$(printf '%s\n' "$token_body" | jq -er '.token')"
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${registry_repo}:pull" | jq -er '.token')"
           index_manifest="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $registry_token" \
             --header 'Accept: application/vnd.oci.image.index.v1+json' \
@@ -109,11 +103,12 @@ jobs:
             --header "Authorization: Bearer $registry_token" \
             --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
             "https://ghcr.io/v2/${registry_repo}/manifests/${attestation_digest}")"
-          printf '%s\n' "$attestation_manifest" | jq '{mediaType, artifactType, predicates: [.layers[]?.annotations["in-toto.io/predicate-type"]]}'
-          test "$(printf '%s\n' "$attestation_manifest" | jq -r '.mediaType // empty')" = 'application/vnd.oci.image.manifest.v1+json'
-          test "$(printf '%s\n' "$attestation_manifest" | jq -r '.artifactType // empty')" = 'application/vnd.docker.attestation.manifest.v1+json'
-          test "$(printf '%s\n' "$attestation_manifest" | jq -r '[.layers[]? | ((.annotations["in-toto.io/predicate-type"] // "") | startswith("https://slsa.dev/provenance/"))] | any' )" = true
-          test "$(printf '%s\n' "$attestation_manifest" | jq -r '[.layers[]? | (.annotations["in-toto.io/predicate-type"] // "") == "https://spdx.dev/Document"] | any')" = true
+          printf '%s\n' "$attestation_manifest" | jq -e '
+            .mediaType == "application/vnd.oci.image.manifest.v1+json"
+            and .artifactType == "application/vnd.docker.attestation.manifest.v1+json"
+            and ([.layers[]? | select(((.annotations["in-toto.io/predicate-type"] // "") | startswith("https://slsa.dev/provenance/")))] | length >= 1)
+            and ([.layers[]? | select((.annotations["in-toto.io/predicate-type"] // "") == "https://spdx.dev/Document")] | length >= 1)
+          ' >/dev/null
           docker pull "$image_ref"
           docker run --detach --name equipment-manager-backend-published-ci --publish 127.0.0.1:18082:8080 "$image_ref"
           trap 'docker rm --force equipment-manager-backend-published-ci >/dev/null 2>&1 || true' EXIT
