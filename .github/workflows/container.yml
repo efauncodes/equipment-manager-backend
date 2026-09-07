@@ -88,9 +88,15 @@ jobs:
           printf '%s\n' "$inspect_output"
           printf '%s\n' "$inspect_output" | grep -Fq "Digest:          $IMAGE_DIGEST"
           registry_repo="${IMAGE_NAME#ghcr.io/}"
-          registry_token="$(curl --fail --silent --show-error \
+          token_response="$(curl --silent --show-error --write-out '\n%{http_code}' \
             --user "$REGISTRY_USERNAME:$REGISTRY_TOKEN" \
-            "https://ghcr.io/token?service=ghcr.io&scope=repository:${registry_repo}:pull" | jq -er '.token')"
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${registry_repo}:pull")"
+          token_status="${token_response##*$'\n'}"
+          token_body="${token_response%$'\n'*}"
+          echo "GHCR token endpoint status: $token_status"
+          printf '%s\n' "$token_body" | jq '{keys: keys, token_present: (.token? != null), message_present: (.message? != null)}'
+          test "$token_status" = 200
+          registry_token="$(printf '%s\n' "$token_body" | jq -er '.token')"
           index_manifest="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $registry_token" \
             --header 'Accept: application/vnd.oci.image.index.v1+json' \
