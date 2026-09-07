@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -22,10 +23,19 @@ var (
 	errForbidden    = errors.New("forbidden")
 )
 
+const (
+	corsAllowedOrigin  = "https://equipment.sentient-octopus.dev"
+	corsAllowedMethods = "GET, POST, PATCH, OPTIONS"
+	corsAllowedHeaders = "Authorization, Content-Type, X-Request-ID"
+)
+
+type readinessProbe func(context.Context) error
+
 type apiServer struct {
 	svc          *service.Service
 	development  bool
 	exposeTokens bool
+	readiness    readinessProbe
 }
 
 type responseMeta struct {
@@ -156,20 +166,109 @@ func newHandler(services ...*service.Service) http.Handler {
 	if len(services) > 0 {
 		svc = services[0]
 	}
-	return newHandlerWithConfig(svc, strings.EqualFold(os.Getenv("APP_ENV"), "development"), strings.EqualFold(os.Getenv("DEV_EXPOSE_TOKENS"), "true"))
+	return newHandlerWithReadiness(svc, nil)
 
 }
 
 func newHandlerWithConfig(svc *service.Service, development, exposeTokens bool) http.Handler {
-	a := &apiServer{svc: svc, development: development, exposeTokens: exposeTokens}
+	return newHandlerWithConfigAndReadiness(svc, development, exposeTokens, nil)
+}
+
+func newHandlerWithReadiness(svc *service.Service, readiness readinessProbe) http.Handler {
+	return newHandlerWithConfigAndReadiness(svc, strings.EqualFold(os.Getenv("APP_ENV"), "development"), strings.EqualFold(os.Getenv("DEV_EXPOSE_TOKENS"), "true"), readiness)
+}
+
+func newHandlerWithConfigAndReadiness(svc *service.Service, development, exposeTokens bool, readiness readinessProbe) http.Handler {
+	a := &apiServer{svc: svc, development: development, exposeTokens: exposeTokens, readiness: readiness}
 	return a.handler()
 }
 
 func (a *apiServer) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", a.readinessHandler)
 	mux.HandleFunc("/", a.dispatch)
-	return mux
+	return a.cors(mux)
+}
+
+func (a *apiServer) readinessHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if a.readiness == nil || a.readiness(r.Context()) != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *apiServer) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if origin != corsAllowedOrigin || r.Header.Get("Cookie") != "" {
+			a.corsDenied(w, r)
+			return
+		}
+
+		if r.Method == http.MethodOptions {
+			if !corsMethodAllowed(r.Header.Get("Access-Control-Request-Method")) || !corsHeadersAllowed(r.Header.Get("Access-Control-Request-Headers")) {
+				a.corsDenied(w, r)
+				return
+			}
+			setCORSHeaders(w, origin)
+			w.Header().Set("Access-Control-Allow-Methods", corsAllowedMethods)
+			w.Header().Set("Access-Control-Allow-Headers", corsAllowedHeaders)
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		setCORSHeaders(w, origin)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *apiServer) corsDenied(w http.ResponseWriter, r *http.Request) {
+	a.writeErrorStatus(w, r, http.StatusForbidden, apiError{Code: "FORBIDDEN", Message: "cors request denied"})
+}
+
+func setCORSHeaders(w http.ResponseWriter, origin string) {
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Vary", "Origin")
+}
+
+func corsMethodAllowed(method string) bool {
+	switch strings.TrimSpace(method) {
+	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+func corsHeadersAllowed(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return true
+	}
+	for _, header := range strings.Split(value, ",") {
+		switch strings.ToLower(strings.TrimSpace(header)) {
+		case "authorization", "content-type", "x-request-id":
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (a *apiServer) dispatch(w http.ResponseWriter, r *http.Request) {

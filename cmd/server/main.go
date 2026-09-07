@@ -40,7 +40,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           newHandler(svc),
+		Handler:           newHandlerWithReadiness(svc, database.PingContext),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
