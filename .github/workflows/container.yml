@@ -85,12 +85,17 @@ jobs:
           inspect_output="$(docker buildx imagetools inspect "$image_ref")"
           printf '%s\n' "$inspect_output"
           printf '%s\n' "$inspect_output" | grep -Fq "Digest:          $IMAGE_DIGEST"
-          slsa="$(docker buildx imagetools inspect "$image_ref" --format '{{json (index .SLSA "linux/amd64")}}')"
-          spdx="$(docker buildx imagetools inspect "$image_ref" --format '{{json (index .SBOM "linux/amd64")}}')"
-          test "$slsa" != "null"
-          test "$spdx" != "null"
-          printf '%s\n' "$slsa" | grep -Fq 'buildType'
-          printf '%s\n' "$spdx" | grep -Fq 'SPDXID'
+          raw_manifest="$(docker buildx imagetools inspect "$image_ref" --raw)"
+          subject_digest="$(printf '%s\n' "$raw_manifest" | jq -r '.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' | head -n 1)"
+          test -n "$subject_digest"
+          attestation_digest="$(printf '%s\n' "$raw_manifest" | jq -r --arg subject "$subject_digest" '.manifests[]? | select((.annotations["vnd.docker.reference.type"] // "") == "attestation-manifest" and (.annotations["vnd.docker.reference.digest"] // "") == $subject) | .digest' | head -n 1)"
+          test -n "$attestation_digest"
+          attestation_manifest="$(docker buildx imagetools inspect "$IMAGE_NAME@$attestation_digest" --raw)"
+          printf '%s\n' "$attestation_manifest" | jq -e '
+            ([.layers[]? | select(((.annotations["in-toto.io/predicate-type"] // "") | startswith("https://slsa.dev/provenance/")))] | length >= 1)
+            and
+            ([.layers[]? | select((.annotations["in-toto.io/predicate-type"] // "") == "https://spdx.dev/Document")] | length >= 1)
+          ' >/dev/null
           docker pull "$image_ref"
           docker run --detach --name equipment-manager-backend-published-ci --publish 127.0.0.1:18082:8080 "$image_ref"
           trap 'docker rm --force equipment-manager-backend-published-ci >/dev/null 2>&1 || true' EXIT
