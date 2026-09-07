@@ -31,6 +31,20 @@ const (
 
 type readinessProbe func(context.Context) error
 
+type apiRoute uint8
+
+const (
+	apiRouteUnknown apiRoute = iota
+	apiRouteAdminMagicLink
+	apiRouteConsume
+	apiRouteLogout
+	apiRouteMe
+	apiRouteMembers
+	apiRouteEquipment
+	apiRouteIssuances
+	apiRouteReturns
+)
+
 type apiServer struct {
 	svc          *service.Service
 	development  bool
@@ -210,6 +224,10 @@ func (a *apiServer) cors(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if routeForPath(strings.TrimPrefix(r.URL.Path, "/api/v1/")) == apiRouteUnknown {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		origin := r.Header.Get("Origin")
 		if origin == "" {
@@ -276,35 +294,87 @@ func (a *apiServer) dispatch(w http.ResponseWriter, r *http.Request) {
 		rootHandler(w, r)
 		return
 	}
-	if a.svc == nil {
-		a.writeError(w, r, errors.New("service unavailable"))
-		return
-	}
 	if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
 		a.writeErrorStatus(w, r, http.StatusNotFound, apiError{Code: "NOT_FOUND", Message: "resource not found"})
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/")
+	route := routeForPath(path)
+	if route == apiRouteUnknown {
+		a.writeErrorStatus(w, r, http.StatusNotFound, apiError{Code: "NOT_FOUND", Message: "resource not found"})
+		return
+	}
+	if a.svc == nil {
+		a.writeError(w, r, errors.New("service unavailable"))
+		return
+	}
+	switch route {
+	case apiRouteAdminMagicLink:
+		a.adminMagicLink(w, r)
+	case apiRouteConsume:
+		a.consume(w, r)
+	case apiRouteLogout:
+		a.logout(w, r)
+	case apiRouteMe:
+		a.me(w, r)
+	case apiRouteMembers:
+		a.members(w, r, strings.TrimPrefix(path, "members"))
+	case apiRouteEquipment:
+		a.equipment(w, r, strings.TrimPrefix(path, "equipment"))
+	case apiRouteIssuances:
+		a.issuances(w, r, strings.TrimPrefix(path, "issuances"))
+	case apiRouteReturns:
+		a.returns(w, r, strings.TrimPrefix(path, "returns"))
+	}
+}
+
+func routeForPath(path string) apiRoute {
 	switch {
 	case path == "auth/admin/magic-links":
-		a.adminMagicLink(w, r)
+		return apiRouteAdminMagicLink
 	case path == "auth/consume":
-		a.consume(w, r)
+		return apiRouteConsume
 	case path == "auth/logout":
-		a.logout(w, r)
+		return apiRouteLogout
 	case path == "me":
-		a.me(w, r)
-	case path == "members" || strings.HasPrefix(path, "members/"):
-		a.members(w, r, strings.TrimPrefix(path, "members"))
-	case path == "equipment" || strings.HasPrefix(path, "equipment/"):
-		a.equipment(w, r, strings.TrimPrefix(path, "equipment"))
-	case path == "issuances" || strings.HasPrefix(path, "issuances/"):
-		a.issuances(w, r, strings.TrimPrefix(path, "issuances"))
-	case path == "returns" || strings.HasPrefix(path, "returns/"):
-		a.returns(w, r, strings.TrimPrefix(path, "returns"))
+		return apiRouteMe
+	case path == "members" || singleResourcePath(path, "members"):
+		return apiRouteMembers
+	case path == "equipment" || singleResourcePath(path, "equipment") || resourceActionPath(path, "equipment", "history", "write-off"):
+		return apiRouteEquipment
+	case path == "issuances" || resourceActionPath(path, "issuances", "confirm"):
+		return apiRouteIssuances
+	case path == "returns" || resourceActionPath(path, "returns", "confirm"):
+		return apiRouteReturns
 	default:
-		a.writeErrorStatus(w, r, http.StatusNotFound, apiError{Code: "NOT_FOUND", Message: "resource not found"})
+		return apiRouteUnknown
 	}
+}
+
+func singleResourcePath(path, resource string) bool {
+	prefix := resource + "/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	value := strings.TrimPrefix(path, prefix)
+	return value != "" && !strings.Contains(value, "/")
+}
+
+func resourceActionPath(path, resource string, actions ...string) bool {
+	prefix := resource + "/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 2 || parts[0] == "" {
+		return false
+	}
+	for _, action := range actions {
+		if parts[1] == action {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *apiServer) adminMagicLink(w http.ResponseWriter, r *http.Request) {

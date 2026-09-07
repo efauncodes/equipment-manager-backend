@@ -44,6 +44,24 @@ func TestCORSPreflightUsesExactAllowlist(t *testing.T) {
 	}
 }
 
+func TestCORSPreflightUnknownAPIPathFallsThroughToNotFound(t *testing.T) {
+	f := newAPIFixture(t)
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/unknown", nil)
+	req.Header.Set("Origin", stagingFrontendOrigin)
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	req.Header.Set("Access-Control-Request-Headers", "Authorization")
+	res := httptest.NewRecorder()
+
+	f.handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusNotFound)
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("allow origin = %q, want header omitted", got)
+	}
+}
+
 func TestCORSHeadersArePresentOnAllowedAPIResponses(t *testing.T) {
 	f := newAPIFixture(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
