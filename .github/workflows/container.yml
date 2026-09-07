@@ -100,14 +100,11 @@ jobs:
             --header "Authorization: Bearer $registry_token" \
             --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
             "https://ghcr.io/v2/${registry_repo}/manifests/${attestation_digest}")"
-          printf '%s\n' "$attestation_manifest" | jq -e '
-            .mediaType == "application/vnd.oci.image.manifest.v1+json"
-            and .artifactType == "application/vnd.docker.attestation.manifest.v1+json"
-            and
-            ([.layers[]? | select(((.annotations["in-toto.io/predicate-type"] // "") | startswith("https://slsa.dev/provenance/")))] | length >= 1)
-            and
-            ([.layers[]? | select((.annotations["in-toto.io/predicate-type"] // "") == "https://spdx.dev/Document")] | length >= 1)
-          ' >/dev/null
+          printf '%s\n' "$attestation_manifest" | jq '{mediaType, artifactType, predicates: [.layers[]?.annotations["in-toto.io/predicate-type"]]}'
+          test "$(printf '%s\n' "$attestation_manifest" | jq -r '.mediaType // empty')" = 'application/vnd.oci.image.manifest.v1+json'
+          test "$(printf '%s\n' "$attestation_manifest" | jq -r '.artifactType // empty')" = 'application/vnd.docker.attestation.manifest.v1+json'
+          test "$(printf '%s\n' "$attestation_manifest" | jq -r '[.layers[]? | ((.annotations["in-toto.io/predicate-type"] // "") | startswith("https://slsa.dev/provenance/"))] | any' )" = true
+          test "$(printf '%s\n' "$attestation_manifest" | jq -r '[.layers[]? | (.annotations["in-toto.io/predicate-type"] // "") == "https://spdx.dev/Document"] | any')" = true
           docker pull "$image_ref"
           docker run --detach --name equipment-manager-backend-published-ci --publish 127.0.0.1:18082:8080 "$image_ref"
           trap 'docker rm --force equipment-manager-backend-published-ci >/dev/null 2>&1 || true' EXIT
