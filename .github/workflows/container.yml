@@ -85,8 +85,12 @@ jobs:
           inspect_output="$(docker buildx imagetools inspect "$image_ref")"
           printf '%s\n' "$inspect_output"
           printf '%s\n' "$inspect_output" | grep -Fq "Digest:          $IMAGE_DIGEST"
-          test "$(docker buildx imagetools inspect "$image_ref" --format '{{json .Provenance.SLSA}}')" != "null"
-          test "$(docker buildx imagetools inspect "$image_ref" --format '{{json .SBOM.SPDX}}')" != "null"
+          provenance="$(docker buildx imagetools inspect "$image_ref" --format '{{json .Provenance}}')"
+          sbom="$(docker buildx imagetools inspect "$image_ref" --format '{{json .SBOM}}')"
+          test "$provenance" != "null"
+          test "$sbom" != "null"
+          printf '%s\n' "$provenance" | grep -Fq 'SLSA'
+          printf '%s\n' "$sbom" | grep -Fq 'SPDX'
           docker pull "$image_ref"
           docker run --detach --name equipment-manager-backend-published-ci --publish 127.0.0.1:18082:8080 "$image_ref"
           trap 'docker rm --force equipment-manager-backend-published-ci >/dev/null 2>&1 || true' EXIT
