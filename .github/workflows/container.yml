@@ -87,15 +87,18 @@ jobs:
           inspect_output="$(docker buildx imagetools inspect "$image_ref")"
           printf '%s\n' "$inspect_output"
           printf '%s\n' "$inspect_output" | grep -Fq "Digest:          $IMAGE_DIGEST"
-          raw_manifest="$(docker buildx imagetools inspect "$image_ref" --raw)"
-          subject_digest="$(printf '%s\n' "$raw_manifest" | jq -r '.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' | head -n 1)"
-          test -n "$subject_digest"
-          attestation_digest="$(printf '%s\n' "$raw_manifest" | jq -r --arg subject "$subject_digest" '.manifests[]? | select((.annotations["vnd.docker.reference.type"] // "") == "attestation-manifest" and (.annotations["vnd.docker.reference.digest"] // "") == $subject) | .digest' | head -n 1)"
-          test -n "$attestation_digest"
           registry_repo="${IMAGE_NAME#ghcr.io/}"
           registry_token="$(curl --fail --silent --show-error \
             --user "$REGISTRY_USERNAME:$REGISTRY_TOKEN" \
             "https://ghcr.io/token?service=ghcr.io&scope=repository:${registry_repo}:pull" | jq -er '.token')"
+          index_manifest="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $registry_token" \
+            --header 'Accept: application/vnd.oci.image.index.v1+json' \
+            "https://ghcr.io/v2/${registry_repo}/manifests/${IMAGE_DIGEST}")"
+          subject_digest="$(printf '%s\n' "$index_manifest" | jq -r '.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' | sed -n '1p')"
+          test -n "$subject_digest"
+          attestation_digest="$(printf '%s\n' "$index_manifest" | jq -r --arg subject "$subject_digest" '.manifests[]? | select((.annotations["vnd.docker.reference.type"] // "") == "attestation-manifest" and (.annotations["vnd.docker.reference.digest"] // "") == $subject) | .digest' | sed -n '1p')"
+          test -n "$attestation_digest"
           attestation_manifest="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $registry_token" \
             --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
