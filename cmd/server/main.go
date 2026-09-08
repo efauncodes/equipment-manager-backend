@@ -40,7 +40,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           newHandler(svc),
+		Handler:           newHandlerWithReadiness(svc, database.PingContext),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -64,7 +64,12 @@ func main() {
 	}
 }
 
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,6 +31,35 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestHealthEndpointMethodContract(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		wantStatus int
+		wantAllow  string
+	}{
+		{name: "get", method: http.MethodGet, wantStatus: http.StatusOK},
+		{name: "head", method: http.MethodHead, wantStatus: http.StatusOK},
+		{name: "post", method: http.MethodPost, wantStatus: http.StatusMethodNotAllowed, wantAllow: "GET, HEAD"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "/healthz", nil)
+			res := httptest.NewRecorder()
+
+			newHandler().ServeHTTP(res, req)
+
+			if res.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", res.Code, tt.wantStatus)
+			}
+			if got := res.Header().Get("Allow"); got != tt.wantAllow {
+				t.Fatalf("allow = %q, want %q", got, tt.wantAllow)
+			}
+		})
+	}
+}
+
 func TestRootEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	res := httptest.NewRecorder()
@@ -37,5 +68,48 @@ func TestRootEndpoint(t *testing.T) {
 
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", res.Code, http.StatusOK)
+	}
+}
+
+func TestReadinessEndpointReportsDatabaseAvailability(t *testing.T) {
+	tests := []struct {
+		name       string
+		probe      func(context.Context) error
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "ready",
+			probe:      func(context.Context) error { return nil },
+			wantStatus: http.StatusOK,
+			wantBody:   `{"status":"ok"}`,
+		},
+		{
+			name:       "database unavailable",
+			probe:      func(context.Context) error { return errors.New("database unavailable") },
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   `{"status":"not_ready"}`,
+		},
+		{
+			name:       "probe missing",
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   `{"status":"not_ready"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+			res := httptest.NewRecorder()
+
+			newHandlerWithConfigAndReadiness(nil, false, false, tt.probe).ServeHTTP(res, req)
+
+			if res.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", res.Code, tt.wantStatus)
+			}
+			if got := res.Body.String(); got != tt.wantBody+"\n" {
+				t.Fatalf("body = %q, want %q", got, tt.wantBody+"\n")
+			}
+		})
 	}
 }

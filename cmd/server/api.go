@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -22,10 +23,33 @@ var (
 	errForbidden    = errors.New("forbidden")
 )
 
+const (
+	corsAllowedOrigin  = "https://equipment.sentient-octopus.dev"
+	corsAllowedMethods = "GET, POST, PATCH, OPTIONS"
+	corsAllowedHeaders = "Authorization, Content-Type, X-Request-ID"
+)
+
+type readinessProbe func(context.Context) error
+
+type apiRoute uint8
+
+const (
+	apiRouteUnknown apiRoute = iota
+	apiRouteAdminMagicLink
+	apiRouteConsume
+	apiRouteLogout
+	apiRouteMe
+	apiRouteMembers
+	apiRouteEquipment
+	apiRouteIssuances
+	apiRouteReturns
+)
+
 type apiServer struct {
 	svc          *service.Service
 	development  bool
 	exposeTokens bool
+	readiness    readinessProbe
 }
 
 type responseMeta struct {
@@ -156,20 +180,113 @@ func newHandler(services ...*service.Service) http.Handler {
 	if len(services) > 0 {
 		svc = services[0]
 	}
-	return newHandlerWithConfig(svc, strings.EqualFold(os.Getenv("APP_ENV"), "development"), strings.EqualFold(os.Getenv("DEV_EXPOSE_TOKENS"), "true"))
+	return newHandlerWithReadiness(svc, nil)
 
 }
 
 func newHandlerWithConfig(svc *service.Service, development, exposeTokens bool) http.Handler {
-	a := &apiServer{svc: svc, development: development, exposeTokens: exposeTokens}
+	return newHandlerWithConfigAndReadiness(svc, development, exposeTokens, nil)
+}
+
+func newHandlerWithReadiness(svc *service.Service, readiness readinessProbe) http.Handler {
+	return newHandlerWithConfigAndReadiness(svc, strings.EqualFold(os.Getenv("APP_ENV"), "development"), strings.EqualFold(os.Getenv("DEV_EXPOSE_TOKENS"), "true"), readiness)
+}
+
+func newHandlerWithConfigAndReadiness(svc *service.Service, development, exposeTokens bool, readiness readinessProbe) http.Handler {
+	a := &apiServer{svc: svc, development: development, exposeTokens: exposeTokens, readiness: readiness}
 	return a.handler()
 }
 
 func (a *apiServer) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", a.readinessHandler)
 	mux.HandleFunc("/", a.dispatch)
-	return mux
+	return a.cors(mux)
+}
+
+func (a *apiServer) readinessHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if a.readiness == nil || a.readiness(r.Context()) != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *apiServer) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if routeForPath(strings.TrimPrefix(r.URL.Path, "/api/v1/")) == apiRouteUnknown {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if origin != corsAllowedOrigin || r.Header.Get("Cookie") != "" {
+			a.corsDenied(w, r)
+			return
+		}
+
+		if r.Method == http.MethodOptions {
+			if !corsMethodAllowed(r.Header.Get("Access-Control-Request-Method")) || !corsHeadersAllowed(r.Header.Get("Access-Control-Request-Headers")) {
+				a.corsDenied(w, r)
+				return
+			}
+			setCORSHeaders(w, origin)
+			w.Header().Set("Access-Control-Allow-Methods", corsAllowedMethods)
+			w.Header().Set("Access-Control-Allow-Headers", corsAllowedHeaders)
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		setCORSHeaders(w, origin)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *apiServer) corsDenied(w http.ResponseWriter, r *http.Request) {
+	a.writeErrorStatus(w, r, http.StatusForbidden, apiError{Code: "FORBIDDEN", Message: "cors request denied"})
+}
+
+func setCORSHeaders(w http.ResponseWriter, origin string) {
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Vary", "Origin")
+}
+
+func corsMethodAllowed(method string) bool {
+	switch strings.TrimSpace(method) {
+	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+func corsHeadersAllowed(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return true
+	}
+	for _, header := range strings.Split(value, ",") {
+		switch strings.ToLower(strings.TrimSpace(header)) {
+		case "authorization", "content-type", "x-request-id":
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (a *apiServer) dispatch(w http.ResponseWriter, r *http.Request) {
@@ -177,35 +294,87 @@ func (a *apiServer) dispatch(w http.ResponseWriter, r *http.Request) {
 		rootHandler(w, r)
 		return
 	}
-	if a.svc == nil {
-		a.writeError(w, r, errors.New("service unavailable"))
-		return
-	}
 	if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
 		a.writeErrorStatus(w, r, http.StatusNotFound, apiError{Code: "NOT_FOUND", Message: "resource not found"})
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/")
+	route := routeForPath(path)
+	if route == apiRouteUnknown {
+		a.writeErrorStatus(w, r, http.StatusNotFound, apiError{Code: "NOT_FOUND", Message: "resource not found"})
+		return
+	}
+	if a.svc == nil {
+		a.writeError(w, r, errors.New("service unavailable"))
+		return
+	}
+	switch route {
+	case apiRouteAdminMagicLink:
+		a.adminMagicLink(w, r)
+	case apiRouteConsume:
+		a.consume(w, r)
+	case apiRouteLogout:
+		a.logout(w, r)
+	case apiRouteMe:
+		a.me(w, r)
+	case apiRouteMembers:
+		a.members(w, r, strings.TrimPrefix(path, "members"))
+	case apiRouteEquipment:
+		a.equipment(w, r, strings.TrimPrefix(path, "equipment"))
+	case apiRouteIssuances:
+		a.issuances(w, r, strings.TrimPrefix(path, "issuances"))
+	case apiRouteReturns:
+		a.returns(w, r, strings.TrimPrefix(path, "returns"))
+	}
+}
+
+func routeForPath(path string) apiRoute {
 	switch {
 	case path == "auth/admin/magic-links":
-		a.adminMagicLink(w, r)
+		return apiRouteAdminMagicLink
 	case path == "auth/consume":
-		a.consume(w, r)
+		return apiRouteConsume
 	case path == "auth/logout":
-		a.logout(w, r)
+		return apiRouteLogout
 	case path == "me":
-		a.me(w, r)
-	case path == "members" || strings.HasPrefix(path, "members/"):
-		a.members(w, r, strings.TrimPrefix(path, "members"))
-	case path == "equipment" || strings.HasPrefix(path, "equipment/"):
-		a.equipment(w, r, strings.TrimPrefix(path, "equipment"))
-	case path == "issuances" || strings.HasPrefix(path, "issuances/"):
-		a.issuances(w, r, strings.TrimPrefix(path, "issuances"))
-	case path == "returns" || strings.HasPrefix(path, "returns/"):
-		a.returns(w, r, strings.TrimPrefix(path, "returns"))
+		return apiRouteMe
+	case path == "members" || singleResourcePath(path, "members"):
+		return apiRouteMembers
+	case path == "equipment" || singleResourcePath(path, "equipment") || resourceActionPath(path, "equipment", "history", "write-off"):
+		return apiRouteEquipment
+	case path == "issuances" || resourceActionPath(path, "issuances", "confirm"):
+		return apiRouteIssuances
+	case path == "returns" || resourceActionPath(path, "returns", "confirm"):
+		return apiRouteReturns
 	default:
-		a.writeErrorStatus(w, r, http.StatusNotFound, apiError{Code: "NOT_FOUND", Message: "resource not found"})
+		return apiRouteUnknown
 	}
+}
+
+func singleResourcePath(path, resource string) bool {
+	prefix := resource + "/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	value := strings.TrimPrefix(path, prefix)
+	return value != "" && !strings.Contains(value, "/")
+}
+
+func resourceActionPath(path, resource string, actions ...string) bool {
+	prefix := resource + "/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 2 || parts[0] == "" {
+		return false
+	}
+	for _, action := range actions {
+		if parts[1] == action {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *apiServer) adminMagicLink(w http.ResponseWriter, r *http.Request) {
